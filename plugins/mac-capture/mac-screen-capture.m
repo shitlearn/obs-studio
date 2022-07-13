@@ -820,6 +820,7 @@ static bool build_display_list(struct screen_capture *sc,
 
 	obs_property_t *display_list = obs_properties_get(props, "display");
 	obs_property_list_clear(display_list);
+
 	[sc->shareable_content.displays
 		enumerateObjectsUsingBlock:^(SCDisplay *_Nonnull display,
 					     NSUInteger idx,
@@ -877,6 +878,7 @@ static bool build_window_list(struct screen_capture *sc,
 
 	obs_property_t *window_list = obs_properties_get(props, "window");
 	obs_property_list_clear(window_list);
+
 	[sc->shareable_content.windows enumerateObjectsUsingBlock:^(
 					       SCWindow *_Nonnull window,
 					       NSUInteger idx,
@@ -914,6 +916,7 @@ static bool build_application_list(struct screen_capture *sc,
 	obs_property_t *application_list =
 		obs_properties_get(props, "application");
 	obs_property_list_clear(application_list);
+
 	[sc->shareable_content.applications
 		enumerateObjectsUsingBlock:^(
 			SCRunningApplication *_Nonnull application,
@@ -958,6 +961,51 @@ static bool content_settings_changed(void *priv, obs_properties_t *props,
 	return content_changed(sc, props);
 }
 
+static bool capture_type_changed(void *data, obs_properties_t *props,
+				 obs_property_t *list OBS_UNUSED,
+				 obs_data_t *settings)
+{
+	struct screen_capture *sc = data;
+	unsigned int capture_type_id = obs_data_get_int(settings, "type");
+	obs_property_t *display_list = obs_properties_get(props, "display");
+	obs_property_t *window_list = obs_properties_get(props, "window");
+	obs_property_t *app_list = obs_properties_get(props, "application");
+	obs_property_t *empty = obs_properties_get(props, "show_empty_names");
+	obs_property_t *hidden =
+		obs_properties_get(props, "show_hidden_windows");
+
+	if (sc->capture_type != capture_type_id) {
+		switch (capture_type_id) {
+		case 0: {
+			obs_property_set_visible(display_list, true);
+			obs_property_set_visible(window_list, false);
+			obs_property_set_visible(app_list, false);
+			obs_property_set_visible(empty, false);
+			obs_property_set_visible(hidden, false);
+			break;
+		}
+		case 1: {
+			obs_property_set_visible(display_list, false);
+			obs_property_set_visible(window_list, true);
+			obs_property_set_visible(app_list, false);
+			obs_property_set_visible(empty, true);
+			obs_property_set_visible(hidden, true);
+			break;
+		}
+		case 2: {
+			obs_property_set_visible(display_list, true);
+			obs_property_set_visible(app_list, true);
+			obs_property_set_visible(window_list, false);
+			obs_property_set_visible(empty, false);
+			obs_property_set_visible(hidden, false);
+			break;
+		}
+		}
+	}
+
+	return content_changed(sc, props);
+}
+
 static obs_properties_t *screen_capture_properties(void *data)
 {
 	struct screen_capture *sc = data;
@@ -965,7 +1013,6 @@ static obs_properties_t *screen_capture_properties(void *data)
 	screen_capture_build_content_list(sc);
 
 	obs_properties_t *props = obs_properties_create();
-
 	obs_property_t *capture_type = obs_properties_add_list(
 		props, "type", obs_module_text("Method"), OBS_COMBO_TYPE_LIST,
 		OBS_COMBO_FORMAT_INT);
@@ -975,9 +1022,16 @@ static obs_properties_t *screen_capture_properties(void *data)
 				  obs_module_text("WindowCapture"), 1);
 	obs_property_list_add_int(capture_type, "Application Capture", 2);
 
+	obs_property_set_modified_callback2(capture_type, capture_type_changed,
+					    data);
+
 	obs_property_t *display_list = obs_properties_add_list(
 		props, "display", obs_module_text("DisplayCapture.Display"),
 		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+
+	obs_property_t *app_list = obs_properties_add_list(
+		props, "application", obs_module_text("Application"),
+		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 
 	obs_property_t *window_list = obs_properties_add_list(
 		props, "window", obs_module_text("WindowUtils.Window"),
@@ -986,23 +1040,48 @@ static obs_properties_t *screen_capture_properties(void *data)
 	obs_property_t *empty = obs_properties_add_bool(
 		props, "show_empty_names",
 		obs_module_text("WindowUtils.ShowEmptyNames"));
-	obs_property_set_modified_callback2(empty, content_settings_changed,
-					    sc);
 
 	obs_property_t *hidden = obs_properties_add_bool(
 		props, "show_hidden_windows",
 		obs_module_text("WindowUtils.ShowHidden"));
+
 	obs_property_set_modified_callback2(hidden, content_settings_changed,
 					    sc);
 
-	obs_property_t *application_list = obs_properties_add_list(
-		props, "application", obs_module_text("Application"),
-		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-
-	content_changed(sc, props);
-
 	obs_properties_add_bool(props, "show_cursor",
 				obs_module_text("DisplayCapture.ShowCursor"));
+
+	switch (sc->capture_type) {
+	case 0: {
+		obs_property_set_visible(display_list, true);
+		obs_property_set_visible(window_list, false);
+		obs_property_set_visible(app_list, false);
+		obs_property_set_visible(empty, false);
+		obs_property_set_visible(hidden, false);
+		break;
+	}
+	case 1: {
+		obs_property_set_visible(display_list, false);
+		obs_property_set_visible(window_list, true);
+		obs_property_set_visible(app_list, false);
+		obs_property_set_visible(empty, true);
+		obs_property_set_visible(hidden, true);
+		break;
+	}
+	case 2: {
+		obs_property_set_visible(display_list, true);
+		obs_property_set_visible(app_list, true);
+		obs_property_set_visible(window_list, false);
+		obs_property_set_visible(empty, false);
+		obs_property_set_visible(hidden, false);
+		break;
+	}
+	}
+
+	obs_property_set_modified_callback2(empty, content_settings_changed,
+					    sc);
+
+	content_changed(sc, props);
 
 	return props;
 }
